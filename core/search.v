@@ -1,39 +1,54 @@
 module core
 
 pub struct Result {
-    pub:
-        file_ref u64
-        score f64
+	pub:
+		file_ref u64
+		score    f64
 }
 
-pub fn (m &MemoryIndex) search(query string, limit int) []Result {
-    q := query.to_lower()
-    mut results := []Result{}
+pub fn (m &MemoryIndex) search(query string, limit int, usage_map map[u64]f64) []Result {
+	q := query.to_lower()
+	if q.len == 0 {
+		return []Result{}
+	}
 
-    if q.len == 0 {
-        return results
-    }
+	mut results := []Result{}
+	mut candidates := []int{}
 
-    mut candidates := []int{}
+	// prefix narrowing
+	if q.len >= 2 && q[..2] in m.prefix_map {
+		candidates = m.prefix_map[q[..2]]
+	} else {
+		for i in 0 .. m.entries.len {
+			candidates << i
+		}
+	}
 
-    if q.len >= 2 && q[..2] in m.prefix_map {
-        candidates = m.prefix_map[q[..2]]
-    } else {
-        for i in 0 .. m.entries.len {
-            candidates << i
-        }
-    }
+	for idx in candidates {
+		name := m.get_name(idx)
 
-    for idx in candidates {
-        name := m.get_name(idx)
+		usage_boost := if m.entries[idx].file_ref in usage_map {
+			usage_map[m.entries[idx].file_ref]
+		} else {
+			0.0
+		}
 
-        if name.contains(q) {
-            results << Result{
-                file_ref: m.entries[idx].file_ref
-                score: 1.0
-            }
-        }
-    }
+		score := calculate_score(q, name, usage_boost)
 
-    return results[..if results.len > limit { limit } else { results.len }]
+		if score > 0 {
+			results << Result{
+				file_ref: m.entries[idx].file_ref
+				score: score
+			}
+		}
+	}
+
+	// sort by score descending
+	results.sort_with_compare(fn (a &Result, b &Result) int {
+		if a.score > b.score { return -1 }
+		if a.score < b.score { return 1 }
+		return 0
+	})
+
+	return results[..if results.len > limit { limit } else { results.len }]
 }
